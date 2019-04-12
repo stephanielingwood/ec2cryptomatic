@@ -5,6 +5,7 @@ import argparse
 import boto3
 import logging
 import sys
+import concurrent
 from concurrent.futures.thread import ThreadPoolExecutor
 from botocore.exceptions import ClientError
 from botocore.exceptions import EndpointConnectionError
@@ -177,7 +178,7 @@ class EC2Cryptomatic(object):
 
         def encrypt_all_volumes(device):
             self._logger.info(
-                f"Starting encryption flow for device attachment {device.attachments[0]['Device']}")
+                f"Starting encryption flow for volume {device.id}, at attachment {device.attachments[0]['Device']}")
 
            # Keep in mind if DeleteOnTermination is needed
             delete_flag = device.attachments[0]['DeleteOnTermination']
@@ -226,23 +227,19 @@ class EC2Cryptomatic(object):
                 continue
 
         with ThreadPoolExecutor(max_workers=50, thread_name_prefix='_Thread_') as executor:
+            unencrypted_volumes = list(filter(
+                lambda volume: not volume.encrypted, self._instance.volumes.all()))
+            self._logger.info(f'The following volumes are unencrypted, and will be encrypted: {unencrypted_volumes}')
 
-            for device in self._instance.volumes.all():
-                if device.encrypted:
-                    msg = '%s: Volume %s already encrypted' % (self._instance.id,
-                                                                device.id)
-                    self._logger.warning(msg)
-                    continue
+            futures = {executor.submit(encrypt_all_volumes, device): device for device in unencrypted_volumes}
 
-                self._logger.info(
-                    f">Let\'s encrypt volume {device.id}, at attachment {device.attachments[0]['Device']}")
+            for future in concurrent.futures.as_completed(futures):
+                device = futures[future]
 
-                # Fire off a separate thread to handle the encryption and swapping of each volume
-                # (Also, if you have more than 50 volumes attached to an instance, we need to talk. :) )
                 try:
-                    executor.submit(encrypt_all_volumes, device)
+                    data = future.result()
                 except Exception as error:
-                    logger.error(f'General Exception, {error}')
+                    logger.error(f'General Exception: {error}')
                     sys.exit(1)
 
         self._start_instance()
