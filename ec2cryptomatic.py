@@ -245,7 +245,7 @@ class EC2Cryptomatic(object):
                     logger.error(f'General Exception, {error}')
                     sys.exit(1)
 
-        # self._start_instance()
+        self._start_instance()
         self._logger.info('End of work on instance %s\n' % self._instance.id)
 
 
