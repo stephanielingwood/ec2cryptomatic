@@ -4,6 +4,7 @@
 import argparse
 import boto3
 import logging
+import os
 import sys
 import concurrent.futures
 from botocore.exceptions import ClientError
@@ -23,7 +24,7 @@ logger.addHandler(stream_handler)
 class EC2Cryptomatic(object):
     """ Encrypt EBS volumes from an EC2 instance """
 
-    def __init__(self, region: str, instance: str, key: str, timeout: int):
+    def __init__(self, region: str, instance: str, key: str, timeout: int, profile: str):
         """ Constructor
             :param region: the AWS region where the instance is
             :param instance: one instance-id
@@ -34,8 +35,15 @@ class EC2Cryptomatic(object):
         self._logger.setLevel(logging.DEBUG)
         self._kms_key = key
 
-        self._ec2_client = boto3.client('ec2', region_name=region)
-        self._ec2_resource = boto3.resource('ec2', region_name=region)
+        if profile:
+            # If the user passes a specific AWS CLI profile, use that
+            self._session = boto3.session.Session(profile_name=profile)
+        else:
+            # Otherwise, default to boto3's standard method for evaluating which profile to use
+            self._session = boto3.session.Session()
+
+        self._ec2_client = self._session.client('ec2', region_name=region)
+        self._ec2_resource = self._session.resource('ec2', region_name=region)
         self._region = region
         self._instance = self._ec2_resource.Instance(id=instance)
 
@@ -45,8 +53,8 @@ class EC2Cryptomatic(object):
 
         # Sets the timeout period for waiters, in max number of attempts
         # Waiter will poll every 15s; so, poll 4 times for each minute of timeout
-        self.timeout = timeout
-        self.max_attempts = self.timeout * 4
+        self._timeout = timeout
+        self.max_attempts = self._timeout * 4
         self._wait_snapshot.config.max_attempts = self.max_attempts
         self._wait_volume.config.max_attempts = self.max_attempts
 
@@ -194,7 +202,7 @@ class EC2Cryptomatic(object):
         """
 
         self._logger.info(f'Start to encrypt instance {self._instance.id}')
-        self._logger.info(f'Timeout set to: {self.timeout} minutes')
+        self._logger.info(f'Timeout set to: {self._timeout} minutes')
 
         if start_instance:
             self._logger.info(f'Instance will be restarted after encryption')
@@ -284,7 +292,7 @@ def main(arguments):
 
     for instance in arguments.instances:
         try:
-            EC2Cryptomatic(arguments.region, instance, arguments.key, int(arguments.timeout)).start_encryption(
+            EC2Cryptomatic(arguments.region, instance, arguments.key, int(arguments.timeout), arguments.profile).start_encryption(
                 arguments.discard_source, arguments.start_instance)
 
         except (EndpointConnectionError, ValueError) as error:
@@ -314,5 +322,7 @@ if __name__ == '__main__':
                         help='Discard source volume after encryption (default: False)')
     parser.add_argument('-s', '--start_instance', action='store_true', default=False,
                         help='Start instance after encrypting all attached volumes (default: False)')
+    parser.add_argument('-p', '--profile', default='',
+                        help='AWS profile to use for the AWS API calls. If not specified, the credentials you already have configured will be used.')
     args = parser.parse_args()
     main(args)
