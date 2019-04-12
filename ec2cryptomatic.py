@@ -177,12 +177,14 @@ class EC2Cryptomatic(object):
         self._logger.info('Start to encrypt instance %s' % self._instance.id)
 
         def encrypt_all_volumes(device):
+            attachment = device.attachments[0]['Device']
+
             self._logger.info(
-                f"Starting encryption flow for volume {device.id}, at attachment {device.attachments[0]['Device']}")
+                f"Starting encryption flow for volume {device.id}, at attachment {attachment}")
 
            # Keep in mind if DeleteOnTermination is needed
             delete_flag = device.attachments[0]['DeleteOnTermination']
-            flag_on = {'DeviceName': device.attachments[0]['Device'],
+            flag_on = {'DeviceName': attachment,
                        'Ebs': {'DeleteOnTermination':  delete_flag}}
 
             # First we have to take a snapshot from the original device
@@ -214,8 +216,9 @@ class EC2Cryptomatic(object):
                 self._instance.modify_attribute(BlockDeviceMappings=[flag_on])
 
             self._logger.info(f'''
-                >The volume at attachment {device.attachments[0]['Device']} has been replaced with an encrypted volume.
-                    Old volume id: {device.id}; new volume id: {volume.id}''')
+                >The volume at attachment {attachment} has been replaced with an encrypted volume.
+                    Old volume id: {device.id}; new volume id: {volume.id}
+                    Hooray!!!''')
 
         # We encrypt only EC2 EBS-backed. Support of instance store will be
         # added later
@@ -234,8 +237,6 @@ class EC2Cryptomatic(object):
             futures = {executor.submit(encrypt_all_volumes, device): device for device in unencrypted_volumes}
 
             for future in concurrent.futures.as_completed(futures):
-                device = futures[future]
-
                 try:
                     data = future.result()
                 except Exception as error:
