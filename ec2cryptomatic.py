@@ -119,11 +119,20 @@ class EC2Cryptomatic(object):
             tag_list = list(filter(
                 lambda tag: not tag['Key'].startswith('aws:'), original_device.tags))
 
-        volume = self._ec2_resource.create_volume(
-            SnapshotId=encrypted_snapshot.id,
-            VolumeType=original_device.volume_type,
-            AvailabilityZone=original_device.availability_zone,
-            TagSpecifications=[{'ResourceType': 'volume', 'Tags': tag_list}])
+        if original_device.volume_type == 'io1':
+            # Iops parameter is required, and only used for, io1 volumes
+            volume = self._ec2_resource.create_volume(
+                SnapshotId=encrypted_snapshot.id,
+                VolumeType=original_device.volume_type,
+                AvailabilityZone=original_device.availability_zone,
+                Iops=original_device.iops,
+                TagSpecifications=[{'ResourceType': 'volume', 'Tags': tag_list}])
+        else:
+            volume = self._ec2_resource.create_volume(
+                SnapshotId=encrypted_snapshot.id,
+                VolumeType=original_device.volume_type,
+                AvailabilityZone=original_device.availability_zone,
+                TagSpecifications=[{'ResourceType': 'volume', 'Tags': tag_list}])
 
         self._logger.info(
             f'-> Creating encrypted volume {volume.id}')
